@@ -1,38 +1,61 @@
-# sv
+# SvelteKit Remote Functions Sourcemap Bug
 
-Everything you need to build a Svelte project, powered by [`sv`](https://github.com/sveltejs/cli).
+Minimal reproduction for a bug where `vite-plugin-sveltekit-remote` produces broken sourcemaps.
 
-## Creating a project
+The plugin's `transform` hook modifies `.remote.*` files but doesn't return a `map` property, causing Vite to lose the sourcemap chain entirely. The resulting `.map` files have `sources: []`, empty `sourcesContent`, and semicolon-only `mappings`.
 
-If you're seeing this, you've probably already done this step. Congrats!
-
-```sh
-# create a new project in the current directory
-npx sv create
-
-# create a new project in my-app
-npx sv create my-app
-```
-
-## Developing
-
-Once you've created a project and installed dependencies with `npm install` (or `pnpm install` or `yarn`), start a development server:
+## Reproduce
 
 ```sh
-npm run dev
-
-# or start the server and open the app in a new browser tab
-npm run dev -- --open
+npm install
 ```
 
-## Building
-
-To create a production version of your app:
+### 1. See the bug
 
 ```sh
-npm run build
+npm run build:bug
 ```
 
-You can preview the production build with `npm run preview`.
+You'll see warnings like:
 
-> To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.
+```
+[plugin vite-plugin-sveltekit-remote] Sourcemap is likely to be incorrect: a]plugin (vite-plugin-sveltekit-remote)
+failed to generate a sourcemap for src/lib/example.remote.ts with id src/lib/example.remote.ts.
+```
+
+Inspect the broken sourcemap:
+
+```sh
+cat .svelte-kit/output/server/chunks/example.remote.js.map
+```
+
+You'll see `"sources":[]`, `"sourcesContent":[]`, and only semicolons in `"mappings"`.
+
+### 2. See the fix
+
+```sh
+npm run build:fix
+```
+
+No warnings. Inspect the fixed sourcemap:
+
+```sh
+cat .svelte-kit/output/server/chunks/example.remote.js.map
+```
+
+Now has proper `sources`, `sourcesContent`, and real VLQ mappings.
+
+## What the patch does
+
+See `patches/@sveltejs+kit+2.53.4.patch`:
+
+- **SSR path**: Uses `MagicString` (already a dependency) instead of bare string concatenation, returns `{ code, map }` with a proper sourcemap
+- **Client path**: Adds `map: { mappings: '' }` to signal an intentional full replacement (no original code preserved)
+
+## Key files
+
+- `src/lib/example.remote.ts` — Remote function file (the file that triggers the bug)
+- `src/routes/+page.svelte` — Page that imports the remote function
+- `svelte.config.js` — Enables `experimental.remoteFunctions`
+- `vite.config.js` — Enables `build.sourcemap` (required to generate `.map` files)
+- `patches/@sveltejs+kit+2.53.4.patch` — The fix
