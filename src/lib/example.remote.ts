@@ -5,6 +5,3 @@ export const getMessage = query(async () => {
   return { text: 'Hello from remote function' };
 });
 
-const doSomething = command(async () => {
-  console.log('Command executed');
-});
